@@ -49,5 +49,5 @@ EXTENSION TO NON-HUMAN PRIMATES
 6. direct comparison with RRBS
 	comparing_RRBS_&_TTMS.R
 
-TESTING FOR AGE EFFECTS
-1. age_effects_modeling.R
+POWER ANALYSES
+1. EMseq_power_simulations.R
