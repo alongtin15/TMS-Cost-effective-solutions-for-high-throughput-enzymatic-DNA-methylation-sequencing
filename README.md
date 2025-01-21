@@ -51,3 +51,7 @@ EXTENSION TO NON-HUMAN PRIMATES
 
 POWER ANALYSES
 1. EMseq_power_simulations.R
+
+BIOLOGICAL ANALYSES
+1. epigenetic_age_predictions_EPICvTMS.R
+2. tissue_effects_RRBS.R
