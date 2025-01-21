@@ -1,0 +1,576 @@
+---
+title: "Coverage simulations for EM-seq paper"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+rm(list = ls())
+```
+
+
+#--------------------------------------------------#
+########    EM-seq power simulations     ######### 
+#--------------------------------------------------#
+
+
+Setup the coverage files to sample from
+```{r}
+library(MASS)
+library(aod)
+library(GenomicRanges)
+library(stringr)
+library(Biostrings)
+library(ggplot2)
+library(RColorBrewer)
+
+# counts from real EM-seq data
+counts=read.table("TMS_96p_ontarget_covfilt_chr1.txt", sep='\t',header=T)
+counts3<-counts[,-c(1:2)]
+
+#What is the mean coverage across sites?
+mean_per_site<-rowMeans(counts3)
+mean(mean_per_site)
+```
+
+
+######## sample size = 200 ##########
+
+Set the simulation parameters. 
+```{r}
+# number of sites to simulate
+sites_max<-1000
+# sample size
+n<-200
+# effect size range
+effect_size<-seq(0,.4,length=10)
+# predictor variable
+early<-sample(c(0,1),n,replace=TRUE)
+# to store the output
+output1 <- matrix(nrow=length(effect_size),ncol=4)
+```
+
+Run the simulation with default coverage
+```{r,warnings=False}
+
+for (k in 1:length(effect_size)){
+
+		theta_j <- early*effect_size[k] 
+		theta_j2 <- 1/(1 + exp(theta_j))
+
+		sites<-sample(1:dim(counts3)[1],sites_max) 
+		tot_counts<-t(apply(counts3[sites,-1], 1, function(z) sample(z,n,replace=T)))
+   		
+		alt_counts<-t(Reduce(cbind,lapply(1:sites_max, function(k) {
+		out<-c()
+		for (j in 1:n){out<-c(out,rbinom(1, tot_counts[k,j], theta_j2[j]))}
+		return(out) })))
+		alt_counts[is.na(alt_counts)] <- 0
+		
+	pval<-c()
+	diff<-c()
+	cov<-c()
+	for (i in 1:sites_max){	
+	tmp<-as.data.frame(t(rbind(early,t(alt_counts[i,]),t(tot_counts[i,]))))
+	cov<-c(cov,mean(tmp$V3,na.rm=T))
+  tmp<-subset(tmp,V3>0)
+  tmp$level<-tmp$V2/tmp$V3
+	x1<-aggregate(tmp$level~tmp$early,FUN=mean)[1,2] 
+	x2<-aggregate(tmp$level~tmp$early,FUN=mean)[2,2] 
+	diff<-c(diff, abs(x1-x2)/((x1+x2)/2) )
+	mod1<-betabin(cbind(V2, V3 - V2) ~ early, ~1,data=tmp)
+	pval<-c(pval,attributes(summary(mod1))$Coef[2,4]) 
+	}
+		output1[k,1]<-mean(cov)
+		output1[k,2]<-mean(diff)
+    output1[k,3]<-length(which(pval<0.001))
+		output1[k,4]<-length(which(pval<0.00001))
+print(k) }
+	
+output20<-as.data.frame(cbind(rep(output1[,1],2),rep(output1[,2],2),c(output1[,3],output1[,4])))
+names(output20)<-c('mean_coverage','mean_diff','n_sig')
+output20$cutoff<-c(rep('p<10-3',length(effect_size)),rep('p<10-5',length(effect_size)))
+output20$target_cov<-"20x"
+
+n200cov20<-ggplot(output20, aes(x=mean_diff, y=n_sig/sites_max,color=cutoff)) +ylab('Power')+theme_bw(13)+geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5)+xlab('Percent difference in methylation levels between groups'); n200cov20
+
+#Run the simulation with 2x the default coverage
+
+for (k in 1:length(effect_size)){
+
+		theta_j <- early*effect_size[k] 
+		theta_j2 <- 1/(1 + exp(theta_j))
+
+		sites<-sample(1:dim(counts3)[1],sites_max) 
+		tot_counts<-t(apply(counts3[sites,-1], 1, function(z) sample(z,n,replace=T)))
+   	# i just multiplied total coverage by 2
+		tot_counts<-2*tot_counts
+   		  
+		alt_counts<-t(Reduce(cbind,lapply(1:sites_max, function(k) {
+		out<-c()
+		for (j in 1:n){out<-c(out,rbinom(1, tot_counts[k,j], theta_j2[j]))}
+		return(out) })))
+		alt_counts[is.na(alt_counts)] <- 0
+
+	pval<-c()
+	diff<-c()
+	cov<-c()
+	for (i in 1:sites_max){	
+	tmp<-as.data.frame(t(rbind(early,t(alt_counts[i,]),t(tot_counts[i,]))))
+	cov<-c(cov,mean(tmp$V3,na.rm=T))
+  tmp<-subset(tmp,V3>0)
+  tmp$level<-tmp$V2/tmp$V3
+	x1<-aggregate(tmp$level~tmp$early,FUN=mean)[1,2] 
+	x2<-aggregate(tmp$level~tmp$early,FUN=mean)[2,2] 
+	diff<-c(diff, abs(x1-x2)/((x1+x2)/2) )
+	mod1<-betabin(cbind(V2, V3 - V2) ~ early, ~1,data=tmp)
+	pval<-c(pval,attributes(summary(mod1))$Coef[2,4]) 
+	}
+		output1[k,1]<-mean(cov)
+		output1[k,2]<-mean(diff)
+    output1[k,3]<-length(which(pval<0.001))
+		output1[k,4]<-length(which(pval<0.00001))
+print(k) }
+	
+output40<-as.data.frame(cbind(rep(output1[,1],2),rep(output1[,2],2),c(output1[,3],output1[,4])))
+names(output40)<-c('mean_coverage','mean_diff','n_sig')
+output40$cutoff<-c(rep('p<10-3',length(effect_size)),rep('p<10-5',length(effect_size)))
+output40$target_cov<-"40x"
+
+n200cov40<-ggplot(output40, aes(x=mean_diff, y=n_sig/sites_max,color=cutoff)) +ylab('Power')+theme_bw(13)+geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5)+xlab('Percent difference in methylation levels between groups'); n200cov40
+
+#Run the simulation with 4x the default coverage
+
+for (k in 1:length(effect_size)){
+
+		theta_j <- early*effect_size[k] 
+		theta_j2 <- 1/(1 + exp(theta_j))
+
+		sites<-sample(1:dim(counts3)[1],sites_max) 
+		tot_counts<-t(apply(counts3[sites,-1], 1, function(z) sample(z,n,replace=T)))
+   	# i just multiplied total coverage by 2
+		tot_counts<-4*tot_counts
+   		  
+		alt_counts<-t(Reduce(cbind,lapply(1:sites_max, function(k) {
+		out<-c()
+		for (j in 1:n){out<-c(out,rbinom(1, tot_counts[k,j], theta_j2[j]))}
+		return(out) })))
+		alt_counts[is.na(alt_counts)] <- 0
+
+	pval<-c()
+	diff<-c()
+	cov<-c()
+	for (i in 1:sites_max){	
+	tmp<-as.data.frame(t(rbind(early,t(alt_counts[i,]),t(tot_counts[i,]))))
+	cov<-c(cov,mean(tmp$V3,na.rm=T))
+  tmp<-subset(tmp,V3>0)
+  tmp$level<-tmp$V2/tmp$V3
+	x1<-aggregate(tmp$level~tmp$early,FUN=mean)[1,2] 
+	x2<-aggregate(tmp$level~tmp$early,FUN=mean)[2,2] 
+	diff<-c(diff, abs(x1-x2)/((x1+x2)/2) )
+	mod1<-betabin(cbind(V2, V3 - V2) ~ early, ~1,data=tmp)
+	pval<-c(pval,attributes(summary(mod1))$Coef[2,4]) 
+	}
+		output1[k,1]<-mean(cov)
+		output1[k,2]<-mean(diff)
+    output1[k,3]<-length(which(pval<0.001))
+		output1[k,4]<-length(which(pval<0.00001))
+print(k) }
+	
+output80<-as.data.frame(cbind(rep(output1[,1],2),rep(output1[,2],2),c(output1[,3],output1[,4])))
+names(output80)<-c('mean_coverage','mean_diff','n_sig')
+output80$cutoff<-c(rep('p<10-3',length(effect_size)),rep('p<10-5',length(effect_size)))
+output80$target_cov<-"80x"
+
+n200cov80<-ggplot(output80, aes(x=mean_diff, y=n_sig/sites_max,color=cutoff)) +ylab('Power')+theme_bw(13)+geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5)+xlab('Percent difference in methylation levels between groups'); n200cov80
+
+n200allcov<-do.call(rbind, list(output20, output40, output80))
+
+n200allcov_plot<-ggplot(n200allcov, aes(x=mean_diff, y=n_sig/sites_max,color=cutoff))+
+  facet_wrap(~target_cov)+
+  ylab('Power') +
+  theme_bw(13) +
+  geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5) +
+  xlab('Percent difference in methylation levels between groups'); n200allcov_plot
+
+n200allcov_pfilt<-subset(n200allcov, cutoff == "p<10-3")
+
+n200allcov_pfilt_plot<-ggplot(n200allcov_pfilt, aes(x=mean_diff, y=n_sig/sites_max,color=target_cov))+
+  ylab('Power') +
+  theme_bw(13) +
+  geom_smooth(aes(fill=target_cov),method='loess',fullrange=TRUE,se=FALSE,span=0.5) +
+  xlab('Percent difference in methylation levels between groups'); n200allcov_pfilt_plot
+```
+
+
+
+
+######## sample size = 100 ##########
+
+Set the simulation parameters. 
+```{r}
+# number of sites to simulate
+sites_max<-1000
+# sample size
+n<-100
+# effect size range
+effect_size<-seq(0,.4,length=10)
+# predictor variable
+early<-sample(c(0,1),n,replace=TRUE)
+# to store the output
+output1 <- matrix(nrow=length(effect_size),ncol=4)
+```
+
+Run the simulation with default coverage
+```{r,warnings=False}
+
+for (k in 1:length(effect_size)){
+
+		theta_j <- early*effect_size[k] 
+		theta_j2 <- 1/(1 + exp(theta_j))
+
+		sites<-sample(1:dim(counts3)[1],sites_max) 
+		tot_counts<-t(apply(counts3[sites,-1], 1, function(z) sample(z,n,replace=T)))
+   		
+		alt_counts<-t(Reduce(cbind,lapply(1:sites_max, function(k) {
+		out<-c()
+		for (j in 1:n){out<-c(out,rbinom(1, tot_counts[k,j], theta_j2[j]))}
+		return(out) })))
+		alt_counts[is.na(alt_counts)] <- 0
+		
+	pval<-c()
+	diff<-c()
+	cov<-c()
+	for (i in 1:sites_max){	
+	tmp<-as.data.frame(t(rbind(early,t(alt_counts[i,]),t(tot_counts[i,]))))
+	cov<-c(cov,mean(tmp$V3,na.rm=T))
+  tmp<-subset(tmp,V3>0)
+  tmp$level<-tmp$V2/tmp$V3
+	x1<-aggregate(tmp$level~tmp$early,FUN=mean)[1,2] 
+	x2<-aggregate(tmp$level~tmp$early,FUN=mean)[2,2] 
+	diff<-c(diff, abs(x1-x2)/((x1+x2)/2) )
+	mod1<-betabin(cbind(V2, V3 - V2) ~ early, ~1,data=tmp)
+	pval<-c(pval,attributes(summary(mod1))$Coef[2,4]) 
+	}
+		output1[k,1]<-mean(cov)
+		output1[k,2]<-mean(diff)
+    output1[k,3]<-length(which(pval<0.001))
+		output1[k,4]<-length(which(pval<0.00001))
+print(k) }
+	
+output20<-as.data.frame(cbind(rep(output1[,1],2),rep(output1[,2],2),c(output1[,3],output1[,4])))
+names(output20)<-c('mean_coverage','mean_diff','n_sig')
+output20$cutoff<-c(rep('p<10-3',length(effect_size)),rep('p<10-5',length(effect_size)))
+output20$target_cov<-"20x"
+
+n100cov20<-ggplot(output20, aes(x=mean_diff, y=n_sig/sites_max,color=cutoff)) +ylab('Power')+theme_bw(13)+geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5)+xlab('Percent difference in methylation levels between groups'); n100cov20
+
+
+
+#Run the simulation with 2x the default coverage
+
+
+for (k in 1:length(effect_size)){
+
+		theta_j <- early*effect_size[k] 
+		theta_j2 <- 1/(1 + exp(theta_j))
+
+		sites<-sample(1:dim(counts3)[1],sites_max) 
+		tot_counts<-t(apply(counts3[sites,-1], 1, function(z) sample(z,n,replace=T)))
+   	# i just multiplied total coverage by 2
+		tot_counts<-2*tot_counts
+   		  
+		alt_counts<-t(Reduce(cbind,lapply(1:sites_max, function(k) {
+		out<-c()
+		for (j in 1:n){out<-c(out,rbinom(1, tot_counts[k,j], theta_j2[j]))}
+		return(out) })))
+		alt_counts[is.na(alt_counts)] <- 0
+
+	pval<-c()
+	diff<-c()
+	cov<-c()
+	for (i in 1:sites_max){	
+	tmp<-as.data.frame(t(rbind(early,t(alt_counts[i,]),t(tot_counts[i,]))))
+	cov<-c(cov,mean(tmp$V3,na.rm=T))
+  tmp<-subset(tmp,V3>0)
+  tmp$level<-tmp$V2/tmp$V3
+	x1<-aggregate(tmp$level~tmp$early,FUN=mean)[1,2] 
+	x2<-aggregate(tmp$level~tmp$early,FUN=mean)[2,2] 
+	diff<-c(diff, abs(x1-x2)/((x1+x2)/2) )
+	mod1<-betabin(cbind(V2, V3 - V2) ~ early, ~1,data=tmp)
+	pval<-c(pval,attributes(summary(mod1))$Coef[2,4]) 
+	}
+		output1[k,1]<-mean(cov)
+		output1[k,2]<-mean(diff)
+    output1[k,3]<-length(which(pval<0.001))
+		output1[k,4]<-length(which(pval<0.00001))
+print(k) }
+	
+output40<-as.data.frame(cbind(rep(output1[,1],2),rep(output1[,2],2),c(output1[,3],output1[,4])))
+names(output40)<-c('mean_coverage','mean_diff','n_sig')
+output40$cutoff<-c(rep('p<10-3',length(effect_size)),rep('p<10-5',length(effect_size)))
+output40$target_cov<-"40x"
+
+n100cov40<-ggplot(output40, aes(x=mean_diff, y=n_sig/sites_max,color=cutoff)) +ylab('Power')+theme_bw(13)+geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5)+xlab('Percent difference in methylation levels between groups'); n100cov40
+
+
+#Run the simulation with 4x the default coverage
+
+for (k in 1:length(effect_size)){
+
+		theta_j <- early*effect_size[k] 
+		theta_j2 <- 1/(1 + exp(theta_j))
+
+		sites<-sample(1:dim(counts3)[1],sites_max) 
+		tot_counts<-t(apply(counts3[sites,-1], 1, function(z) sample(z,n,replace=T)))
+   	# i just multiplied total coverage by 2
+		tot_counts<-4*tot_counts
+   		  
+		alt_counts<-t(Reduce(cbind,lapply(1:sites_max, function(k) {
+		out<-c()
+		for (j in 1:n){out<-c(out,rbinom(1, tot_counts[k,j], theta_j2[j]))}
+		return(out) })))
+		alt_counts[is.na(alt_counts)] <- 0
+
+	pval<-c()
+	diff<-c()
+	cov<-c()
+	for (i in 1:sites_max){	
+	tmp<-as.data.frame(t(rbind(early,t(alt_counts[i,]),t(tot_counts[i,]))))
+	cov<-c(cov,mean(tmp$V3,na.rm=T))
+  tmp<-subset(tmp,V3>0)
+  tmp$level<-tmp$V2/tmp$V3
+	x1<-aggregate(tmp$level~tmp$early,FUN=mean)[1,2] 
+	x2<-aggregate(tmp$level~tmp$early,FUN=mean)[2,2] 
+	diff<-c(diff, abs(x1-x2)/((x1+x2)/2) )
+	mod1<-betabin(cbind(V2, V3 - V2) ~ early, ~1,data=tmp)
+	pval<-c(pval,attributes(summary(mod1))$Coef[2,4]) 
+	}
+		output1[k,1]<-mean(cov)
+		output1[k,2]<-mean(diff)
+    output1[k,3]<-length(which(pval<0.001))
+		output1[k,4]<-length(which(pval<0.00001))
+print(k) }
+	
+output80<-as.data.frame(cbind(rep(output1[,1],2),rep(output1[,2],2),c(output1[,3],output1[,4])))
+names(output80)<-c('mean_coverage','mean_diff','n_sig')
+output80$cutoff<-c(rep('p<10-3',length(effect_size)),rep('p<10-5',length(effect_size)))
+output80$target_cov<-"80x"
+
+n100cov80<-ggplot(output80, aes(x=mean_diff, y=n_sig/sites_max,color=cutoff)) +ylab('Power')+theme_bw(13)+geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5)+xlab('Percent difference in methylation levels between groups'); n100cov80
+
+
+n100allcov<-do.call(rbind, list(output20, output40, output80))
+
+n100allcov_plot<-ggplot(n100allcov, aes(x=mean_diff, y=n_sig/sites_max,color=cutoff))+
+  facet_wrap(~target_cov)+
+  ylab('Power') +
+  theme_bw(13) +
+  geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5) +
+  xlab('Percent difference in methylation levels between groups'); n100allcov_plot
+
+
+n100allcov_pfilt<-subset(n100allcov, cutoff == "p<10-3")
+
+n100allcov_pfilt_plot<-ggplot(n100allcov_pfilt, aes(x=mean_diff, y=n_sig/sites_max,color=target_cov))+
+  ylab('Power') +
+  theme_bw(13) +
+  geom_smooth(aes(fill=target_cov),method='loess',fullrange=TRUE,se=FALSE,span=0.5) +
+  xlab('Percent difference in methylation levels between groups'); n100allcov_pfilt_plot
+```
+
+
+######## sample size = 400 ##########
+
+Set the simulation parameters. 
+```{r}
+# number of sites to simulate
+sites_max<-1000
+# sample size
+n<-400
+# effect size range
+effect_size<-seq(0,.4,length=10)
+# predictor variable
+early<-sample(c(0,1),n,replace=TRUE)
+# to store the output
+output1 <- matrix(nrow=length(effect_size),ncol=4)
+```
+
+Run the simulation with default coverage
+```{r,warnings=False}
+
+for (k in 1:length(effect_size)){
+
+		theta_j <- early*effect_size[k] 
+		theta_j2 <- 1/(1 + exp(theta_j))
+
+		sites<-sample(1:dim(counts3)[1],sites_max) 
+		tot_counts<-t(apply(counts3[sites,-1], 1, function(z) sample(z,n,replace=T)))
+   		
+		alt_counts<-t(Reduce(cbind,lapply(1:sites_max, function(k) {
+		out<-c()
+		for (j in 1:n){out<-c(out,rbinom(1, tot_counts[k,j], theta_j2[j]))}
+		return(out) })))
+		alt_counts[is.na(alt_counts)] <- 0
+		
+	pval<-c()
+	diff<-c()
+	cov<-c()
+	for (i in 1:sites_max){	
+	tmp<-as.data.frame(t(rbind(early,t(alt_counts[i,]),t(tot_counts[i,]))))
+	cov<-c(cov,mean(tmp$V3,na.rm=T))
+  tmp<-subset(tmp,V3>0)
+  tmp$level<-tmp$V2/tmp$V3
+	x1<-aggregate(tmp$level~tmp$early,FUN=mean)[1,2] 
+	x2<-aggregate(tmp$level~tmp$early,FUN=mean)[2,2] 
+	diff<-c(diff, abs(x1-x2)/((x1+x2)/2) )
+	mod1<-betabin(cbind(V2, V3 - V2) ~ early, ~1,data=tmp)
+	pval<-c(pval,attributes(summary(mod1))$Coef[2,4]) 
+	}
+		output1[k,1]<-mean(cov)
+		output1[k,2]<-mean(diff)
+    output1[k,3]<-length(which(pval<0.001))
+		output1[k,4]<-length(which(pval<0.00001))
+print(k) }
+	
+output20<-as.data.frame(cbind(rep(output1[,1],2),rep(output1[,2],2),c(output1[,3],output1[,4])))
+names(output20)<-c('mean_coverage','mean_diff','n_sig')
+output20$cutoff<-c(rep('p<10-3',length(effect_size)),rep('p<10-5',length(effect_size)))
+output20$target_cov<-"20x"
+
+n400cov20<-ggplot(output20, aes(x=mean_diff, y=n_sig/sites_max,color=cutoff)) +ylab('Power')+theme_bw(13)+geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5)+xlab('Percent difference in methylation levels between groups'); n400cov20
+
+
+#Run the simulation with 2x the default coverage
+
+
+for (k in 1:length(effect_size)){
+
+		theta_j <- early*effect_size[k] 
+		theta_j2 <- 1/(1 + exp(theta_j))
+
+		sites<-sample(1:dim(counts3)[1],sites_max) 
+		tot_counts<-t(apply(counts3[sites,-1], 1, function(z) sample(z,n,replace=T)))
+   	# i just multiplied total coverage by 2
+		tot_counts<-2*tot_counts
+   		  
+		alt_counts<-t(Reduce(cbind,lapply(1:sites_max, function(k) {
+		out<-c()
+		for (j in 1:n){out<-c(out,rbinom(1, tot_counts[k,j], theta_j2[j]))}
+		return(out) })))
+		alt_counts[is.na(alt_counts)] <- 0
+
+	pval<-c()
+	diff<-c()
+	cov<-c()
+	for (i in 1:sites_max){	
+	tmp<-as.data.frame(t(rbind(early,t(alt_counts[i,]),t(tot_counts[i,]))))
+	cov<-c(cov,mean(tmp$V3,na.rm=T))
+  tmp<-subset(tmp,V3>0)
+  tmp$level<-tmp$V2/tmp$V3
+	x1<-aggregate(tmp$level~tmp$early,FUN=mean)[1,2] 
+	x2<-aggregate(tmp$level~tmp$early,FUN=mean)[2,2] 
+	diff<-c(diff, abs(x1-x2)/((x1+x2)/2) )
+	mod1<-betabin(cbind(V2, V3 - V2) ~ early, ~1,data=tmp)
+	pval<-c(pval,attributes(summary(mod1))$Coef[2,4]) 
+	}
+		output1[k,1]<-mean(cov)
+		output1[k,2]<-mean(diff)
+    output1[k,3]<-length(which(pval<0.001))
+		output1[k,4]<-length(which(pval<0.00001))
+print(k) }
+	
+output40<-as.data.frame(cbind(rep(output1[,1],2),rep(output1[,2],2),c(output1[,3],output1[,4])))
+names(output40)<-c('mean_coverage','mean_diff','n_sig')
+output40$cutoff<-c(rep('p<10-3',length(effect_size)),rep('p<10-5',length(effect_size)))
+output40$target_cov<-"40x"
+
+n400cov40<-ggplot(output40, aes(x=mean_diff, y=n_sig/sites_max,color=cutoff)) +ylab('Power')+theme_bw(13)+geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5)+xlab('Percent difference in methylation levels between groups'); n400cov40
+
+#Run the simulation with 4x the default coverage
+
+for (k in 1:length(effect_size)){
+
+		theta_j <- early*effect_size[k] 
+		theta_j2 <- 1/(1 + exp(theta_j))
+
+		sites<-sample(1:dim(counts3)[1],sites_max) 
+		tot_counts<-t(apply(counts3[sites,-1], 1, function(z) sample(z,n,replace=T)))
+   	# i just multiplied total coverage by 2
+		tot_counts<-4*tot_counts
+   		  
+		alt_counts<-t(Reduce(cbind,lapply(1:sites_max, function(k) {
+		out<-c()
+		for (j in 1:n){out<-c(out,rbinom(1, tot_counts[k,j], theta_j2[j]))}
+		return(out) })))
+		alt_counts[is.na(alt_counts)] <- 0
+
+	pval<-c()
+	diff<-c()
+	cov<-c()
+	for (i in 1:sites_max){	
+	tmp<-as.data.frame(t(rbind(early,t(alt_counts[i,]),t(tot_counts[i,]))))
+	cov<-c(cov,mean(tmp$V3,na.rm=T))
+  tmp<-subset(tmp,V3>0)
+  tmp$level<-tmp$V2/tmp$V3
+	x1<-aggregate(tmp$level~tmp$early,FUN=mean)[1,2] 
+	x2<-aggregate(tmp$level~tmp$early,FUN=mean)[2,2] 
+	diff<-c(diff, abs(x1-x2)/((x1+x2)/2) )
+	mod1<-betabin(cbind(V2, V3 - V2) ~ early, ~1,data=tmp)
+	pval<-c(pval,attributes(summary(mod1))$Coef[2,4]) 
+	}
+		output1[k,1]<-mean(cov)
+		output1[k,2]<-mean(diff)
+    output1[k,3]<-length(which(pval<0.001))
+		output1[k,4]<-length(which(pval<0.00001))
+print(k) }
+	
+output80<-as.data.frame(cbind(rep(output1[,1],2),rep(output1[,2],2),c(output1[,3],output1[,4])))
+names(output80)<-c('mean_coverage','mean_diff','n_sig')
+output80$cutoff<-c(rep('p<10-3',length(effect_size)),rep('p<10-5',length(effect_size)))
+output80$target_cov<-"80x"
+
+n400cov80<-ggplot(output80, aes(x=mean_diff, y=n_sig/sites_max,color=cutoff)) +ylab('Power')+theme_bw(13)+geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5)+xlab('Percent difference in methylation levels between groups'); n400cov80
+
+n400allcov<-do.call(rbind, list(output20, output40, output80))
+
+n400allcov_plot<-ggplot(n400allcov, aes(x=mean_diff, y=n_sig/sites_max,color=cutoff))+
+  facet_wrap(~target_cov)+
+  ylab('Power') +
+  theme_bw(13) +
+  geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5) +
+  xlab('Percent difference in methylation levels between groups'); n400allcov_plot
+
+n400allcov_pfilt<-subset(n400allcov, cutoff == "p<10-3")
+
+n400allcov_pfilt_plot<-ggplot(n400allcov_pfilt, aes(x=mean_diff, y=n_sig/sites_max,color=target_cov))+
+  ylab('Power') +
+  theme_bw(13) +
+  geom_smooth(aes(fill=target_cov),method='loess',fullrange=TRUE,se=FALSE,span=0.5) +
+  xlab('Percent difference in methylation levels between groups'); n400allcov_pfilt_plot
+```
+
+
+```{r}
+n100allcov$sample_size<-"n=100"
+n200allcov$sample_size<-"n=200"
+n400allcov$sample_size<-"n=400"
+
+alln_allcov_EMseq<-do.call(rbind, list(n100allcov, n200allcov, n400allcov))
+
+alln_allcov_EMseq_pfilt<-subset(alln_allcov_EMseq, cutoff == "p<10-3")
+
+alln_allcov_EMseq_pfilt_plot<-ggplot(alln_allcov_EMseq_pfilt, aes(x=mean_diff, y=n_sig/sites_max,color=target_cov))+
+  scale_color_manual(values=brewer.pal(3, "Dark2")) +
+  facet_wrap(~sample_size) +
+  labs(color="Target coverage", y='Power', x='Percent difference in methylation levels between groups') +
+  theme_bw(13) +
+   theme(axis.text.x=element_text(angle=45, vjust=1, hjust=1), plot.title=element_text(hjust=0.5)) +
+  geom_smooth(method='loess',fullrange=TRUE,se=FALSE,span=0.5) +
+  ggtitle("EM-seq"); alln_allcov_EMseq_pfilt_plot
+
+ggsave("alln_allcov_EMseq_plot.pdf", alln_allcov_EMseq_pfilt_plot, width=6, height=3.5)
+```
+
